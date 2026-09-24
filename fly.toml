@@ -28,6 +28,22 @@ auto_stop_machines = "stop"
 auto_start_machines = true
 min_machines_running = 0
 
+# Without this block Fly's only health signal is "is the port open", which a
+# broken migration passes: migrate() throws lazily on the first request that
+# imports src/lib/db.ts, so the process still binds the port and every page
+# just 500s underneath a "healthy" machine. "/" is the deliberate choice of
+# path — it's the page that reads from the database (currently via
+# listMessages(), soon via the courses/assessments tables), so a migration
+# failure fails THIS check rather than hiding behind a route that never
+# touches the DB.
+[[http_service.checks]]
+grace_period = "10s"
+interval = "15s"
+timeout = "5s"
+method = "GET"
+path = "/"
+protocol = "http"
+
 [[vm]]
 size = "shared-cpu-1x"
 memory = "256mb"
