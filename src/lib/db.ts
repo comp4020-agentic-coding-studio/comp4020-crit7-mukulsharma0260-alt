@@ -15,6 +15,9 @@ mkdirSync(dirname(path), { recursive: true });
 
 const client = new Database(path);
 client.pragma("journal_mode = WAL");
+// better-sqlite3 leaves FK enforcement off by default, which would make
+// every `.references()` in schema.ts decorative only.
+client.pragma("foreign_keys = ON");
 
 export const db = drizzle(client);
 
