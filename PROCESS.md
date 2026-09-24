@@ -64,3 +64,57 @@ compaction rather than live only in a conversation.
 - **Worst-week metric: max assessment weight due in any single bucket, ties go
   to the earlier bucket.** Nothing cleverer — no weighting by difficulty, no
   smoothing.
+
+## The deploy health check was checking the wrong thing
+
+Fly's default health signal is "is the port open." That check would have
+passed on a broken migration: the Astro server binds the port regardless of
+whether the database is usable, and `migrate()` only throws lazily, on the
+first request that imports `src/lib/db.ts`. The machine would report healthy
+in `flyctl status` while every page underneath it 500'd.
+
+Two mechanical facts sit behind this:
+
+- Drizzle's migrations run as one atomic batch against the whole pending set.
+  On an existing volume, a bad migration rolls back only itself — it does not
+  corrupt migrations that already applied cleanly.
+- The server binds its port before migrations are even attempted, so "port
+  open" and "database usable" are independent facts. A check that only tests
+  the first tells you nothing about the second.
+
+I did not find this by reading the config and reasoning about what it
+covered. I found it by deliberately writing a malformed migration
+(`drizzle/0002_healthcheck_test_broken.sql`, a course row with no matching
+breakpoint) and deploying it, and watching `flyctl status` call the result
+healthy.
+
+The fix is an `[[http_service.checks]]` block against `/` rather than the
+service default. `/` is the deliberate choice: it's the one route that reads
+the database, so a migration failure fails *this* check instead of hiding
+behind a static route that never touches the DB.
+
+Then I broke it again on purpose, to confirm the fix actually does what I
+claimed rather than trusting the config to be correct because it reads
+correctly. `flyctl deploy` failed outright — `Unrecoverable error: timeout
+reached waiting for health checks to pass for machine 890de5c6d56768` — not a
+check that quietly reported unhealthy after the fact, but a rollout the
+deploy command itself refused to complete.
+
+**The rule this is really about:** my last assignment's process write-up
+ended on "a green check is not proof." This is the next step down from that —
+a check I have never personally watched go red is not a check, it's a guess
+that happens to be green. Writing the check is half the work; forcing it to
+fail once, on purpose, for the reason I claim it exists, is the other half.
+I had a check last week that stayed green for two days while blind to
+exactly the failure it was supposed to catch, and I only noticed because I
+went looking for something else.
+
+Two practical consequences, noted for later rather than acted on now:
+
+1. The check now gates the rollout, which is correct but not free: a broken
+   deploy near a cutoff hangs for up to `flyctl deploy`'s `--wait-timeout`
+   default of 5 minutes before failing, rather than failing fast.
+2. `min_machines_running = 0` means the app scales to zero when idle, so the
+   first request after a quiet period pays a cold start plus the check's
+   10s grace period. Irrelevant while building; relevant when demoing — open
+   the URL a minute before presenting rather than live.
