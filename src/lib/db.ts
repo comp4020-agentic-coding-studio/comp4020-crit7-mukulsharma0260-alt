@@ -4,7 +4,7 @@ import Database from "better-sqlite3";
 import { desc } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
-import { type Message, messages } from "./schema";
+import { type Assessment, type Course, assessments, courses, type Message, messages, planCourses } from "./schema";
 
 // One SQLite file is the app's whole persistent state. In production
 // fly.toml points DATABASE_PATH at the machine's volume (/data), which is
@@ -35,4 +35,40 @@ export function listMessages(): Message[] {
 
 export function addMessage(body: string): Message {
   return db.insert(messages).values({ body }).returning().get();
+}
+
+export function listCourses(): Course[] {
+  return db.select().from(courses).all();
+}
+
+export function listAssessments(): Assessment[] {
+  return db.select().from(assessments).all();
+}
+
+export type Plan = { current: string[]; candidate: string | null };
+
+// A single implicit user, so plan_courses holds exactly one plan: at most one
+// 'candidate' row (courseId is its primary key) and any number of 'current'
+// rows. Reload-and-restore just reads this table back.
+export function getPlan(): Plan {
+  const rows = db.select().from(planCourses).all();
+  return {
+    current: rows.filter((row) => row.role === "current").map((row) => row.courseId),
+    candidate: rows.find((row) => row.role === "candidate")?.courseId ?? null,
+  };
+}
+
+// Replaces the whole plan atomically: the delete and the re-insert happen in
+// one transaction, so a reload never sees a half-written plan (empty, or a
+// mix of the old and new selections).
+export function savePlan(plan: Plan): void {
+  db.transaction((tx) => {
+    tx.delete(planCourses).run();
+    for (const courseId of plan.current) {
+      tx.insert(planCourses).values({ courseId, role: "current" }).run();
+    }
+    if (plan.candidate) {
+      tx.insert(planCourses).values({ courseId: plan.candidate, role: "candidate" }).run();
+    }
+  });
 }

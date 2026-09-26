@@ -1,8 +1,29 @@
 ---
-import { listMessages } from "../lib/db";
+import { getPlan, listAssessments, listCourses } from "../lib/db";
+import { computeWeeklyPressure } from "../lib/pressure";
 import "../styles.css";
 
-const messages = listMessages();
+const courses = listCourses();
+const assessments = listAssessments();
+const plan = getPlan();
+
+const saved = Astro.url.searchParams.get("saved") === "1";
+const error = Astro.url.searchParams.get("error");
+
+const ERROR_MESSAGES: Record<string, string> = {
+  unknown_course: "That course code isn't recognised.",
+  duplicate_current: "Each course can only be selected once.",
+  candidate_conflict: "The candidate course can't also be one of your current courses.",
+  multiple_candidates: "Choose only one candidate course.",
+  malformed: "Something went wrong reading that submission.",
+};
+const errorMessage = error ? (ERROR_MESSAGES[error] ?? "That plan couldn't be saved.") : null;
+
+const pressure = computeWeeklyPressure(assessments, plan.current, plan.candidate);
+// Bars scale against 100 (a whole course's assessment weight) by default, but
+// stretch further if a week's combined total genuinely exceeds it — real
+// clash, never clipped away.
+const scale = Math.max(100, ...pressure.weeks.map((week) => week.withCandidateTotal));
 ---
 
 <!doctype html>
@@ -10,44 +31,133 @@ const messages = listMessages();
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>COMP4020 prototype</title>
+    <title>CLASH</title>
   </head>
   <body>
     <nav aria-label="site">
-      <a href="/">Guestbook</a>
+      <a href="/">CLASH</a>
       <a href="/readme/">About</a>
     </nav>
     <main>
-      <h1>Guestbook</h1>
-      <p>
-        A minimal full-stack starter: messages live in SQLite on the machine's
-        volume (state survives a reload and a redeploy), and new messages
-        appear in every open tab over a server-sent-events stream — open this
-        page twice and sign it in one. Replace all of this with your own
-        prototype.
-      </p>
-      <form method="post" action="/api/messages">
-        <label for="body">Leave a message</label>
-        <input id="body" name="body" required maxlength="500" />
-        <button>Sign</button>
+      <header class="hero">
+        <h1>CLASH</h1>
+        <p class="tagline">A course can fit your timetable and still not fit your semester.</p>
+        <p class="supporting">See where assessment weight piles up before another course joins your plan.</p>
+      </header>
+
+      <form method="post" action="/api/plan" class="plan-form">
+        <fieldset>
+          <legend>MY SEMESTER</legend>
+          <p class="hint">Select every course you're currently taking.</p>
+          <div class="course-grid">
+            {
+              courses.map((course) => {
+                const checked = plan.current.includes(course.code);
+                return (
+                  <label class:list={["course-card", { selected: checked }]}>
+                    <input type="checkbox" name="current" value={course.code} checked={checked} />
+                    <span class="course-code">{course.code}</span>
+                    <span class="course-title">{course.title}</span>
+                  </label>
+                );
+              })
+            }
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>CONSIDERING</legend>
+          <p class="hint">Pick at most one candidate course to compare against your current semester.</p>
+          <label for="candidate">Candidate course</label>
+          <select id="candidate" name="candidate">
+            <option value="">— No candidate —</option>
+            {
+              courses
+                .filter((course) => !plan.current.includes(course.code))
+                .map((course) => (
+                  <option value={course.code} selected={plan.candidate === course.code}>
+                    {course.code} — {course.title}
+                  </option>
+                ))
+            }
+          </select>
+        </fieldset>
+
+        <button type="submit">SAVE MY PLAN</button>
+        {saved && (
+          <p class="confirmation" role="status">
+            Plan saved.
+          </p>
+        )}
+        {errorMessage && (
+          <p class="error" role="alert">
+            {errorMessage}
+          </p>
+        )}
       </form>
-      <ul id="messages">
-        {messages.map((message) => <li>{message.body}</li>)}
-      </ul>
+
+      <section class="pressure">
+        <h2>ASSESSMENT PRESSURE</h2>
+        <p class="hint">Assessment weight due across selected courses, by teaching week.</p>
+        <div class="legend">
+          <span class="legend-item"><span class="swatch current" /> Current</span>
+          <span class="legend-item"><span class="swatch with-candidate" /> Current + candidate</span>
+        </div>
+
+        {
+          pressure.weeks.length === 0 ? (
+            <p>No selected course has assessments mapped to a numbered teaching week yet.</p>
+          ) : (
+            <ol class="week-list">
+              {pressure.weeks.map((week) => {
+                const isWorst = pressure.worstWeek?.week === week.week;
+                const delta = week.withCandidateTotal - week.currentTotal;
+                return (
+                  <li class:list={["week-row", { worst: isWorst }]}>
+                    <div class="week-label">
+                      {week.label}
+                      {isWorst && <span class="worst-badge">WORST WEEK</span>}
+                    </div>
+                    <div class="bars">
+                      <div class="bar-track">
+                        <div class="bar current" style={`width: ${(week.currentTotal / scale) * 100}%`} />
+                      </div>
+                      <div class="bar-track">
+                        <div class="bar with-candidate" style={`width: ${(week.withCandidateTotal / scale) * 100}%`} />
+                      </div>
+                    </div>
+                    <div class="week-totals">
+                      <span>Current: {week.currentTotal}%</span>
+                      <span>
+                        With candidate: {week.withCandidateTotal}%
+                        {delta > 0 && ` (+${delta} percentage points)`}
+                      </span>
+                    </div>
+                  </li>
+                );
+              })}
+            </ol>
+          )
+        }
+
+        {
+          pressure.unmapped.length > 0 && (
+            <div class="unmapped">
+              <h3>Outside numbered teaching weeks</h3>
+              <p class="hint">
+                Timing that can't be mapped to a numbered teaching week — never discarded, shown here instead.
+              </p>
+              <ul>
+                {pressure.unmapped.map((item) => (
+                  <li>
+                    <strong>{item.courseId}</strong> — {item.title} ({item.weight}%): {item.timingLabel}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )
+        }
+      </section>
     </main>
-    <script>
-      // The live half of the demo: subscribe to the SSE stream and prepend
-      // messages as they arrive. The form itself needs none of this — its
-      // POST + redirect re-renders the submitting tab from SQLite; this
-      // stream is how every other tab finds out.
-      const list = document.querySelector("#messages");
-      const source = new EventSource("/api/events");
-      source.addEventListener("message", (event) => {
-        const message = JSON.parse(event.data);
-        const item = document.createElement("li");
-        item.textContent = message.body;
-        list?.prepend(item);
-      });
-    </script>
   </body>
 </html>
