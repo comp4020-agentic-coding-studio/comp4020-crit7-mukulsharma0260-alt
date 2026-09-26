@@ -1,13 +1,13 @@
-# The useful work was what I threw away
+# The database disagreed with my model
 
-At the start of this course, I thought progress meant getting the agent to produce more code. Looking back, the biggest change in my work is almost the opposite: I became better at deciding what should not survive.
+My breakthrough this week was realising that a schema is not just somewhere to put data — it is a claim about how the real system works.
 
-Crit 1 gave me the first warning. For GameVault 2004, the agent pushed toward Vite and TypeScript even though the brief called for HTML and CSS. I stopped, checked the specification, and changed direction. Crit 2 reinforced the same lesson: a broken link was not enough evidence to make a stronger claim about Canty's.
+I began CLASH with a tidy assumption: every assessment would have an exact due date, and every course would contribute 100% of its assessment weight inside one semester. That looked sensible until I checked the real ANU data. Some assessments published only a teaching week, some had no exact date, and COMP6120 even published "Week 13", which did not fit my numbered teaching-week model. Instead of inventing values to satisfy the schema, I changed the schema so published, estimated and unstated timing remained different states.
 
-The crit cycle sometimes felt exhausting — build, check, deploy, document, explain, then start again. But that repetition mattered. Bloom, my browser guitar, made it obvious. Green checks coexisted with duplicated logic, unreachable fallbacks, and real iPhone failures. I learned that tests are evidence, not permission to stop thinking.
+The tooling challenged the same habit. Drizzle generated a migration that looked plausible, but a fresh-database test showed it was copying columns that did not exist yet. I mapped the old schema to the new one explicitly and verified that existing rows would survive before accepting the migration.
 
-Assignment 1 exposed a deeper problem. My M/M/1 model worked, my harness was stronger, and the interaction behaved correctly, but the 69.25 feedback showed that technical correctness did not automatically create conceptual integration.
+I also corrected my own scope. I was turning a small crit into a much larger planning system. I cut it back to one defensible flow: select current courses, add one candidate, save the plan, reload, and see the same state plus the resulting assessment-pressure clash.
 
-That became my Assignment 2 breakthrough. I introduced one rejection rule: if a week, assessment, or interaction could survive after replacing Dunkelflaute with another topic, it was too generic. The clearest example was a believable 4.1% minimum-generation figure that the canonical trace contradicted; I replaced it with the trace-derived value of about 0.9%.
+The finished prototype now persists the semester plan in SQLite and shows the worst teaching week without pretending assessment weight is the same thing as workload.
 
-My journey has been generating → checking → rejecting → defending. I started wanting to become faster with AI. I now want to be the kind of developer who can explain not only what the agent produced, but why I trusted it enough to keep.
+Before this crit, I often asked whether the agent could build what I described. Now I want to ask first: **what assumptions am I encoding, and what evidence would prove them wrong?**
