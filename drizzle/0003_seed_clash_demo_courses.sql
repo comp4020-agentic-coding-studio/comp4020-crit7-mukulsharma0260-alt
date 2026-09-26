@@ -1,0 +1,20 @@
+INSERT INTO `courses` (`code`, `title`, `units`, `assessment_scope`) VALUES
+	('COMP4020', 'Advanced Topics in Human-Centred and Creative Computing', 6, 'complete'),
+	('COMP6390', 'Human-Computer Interaction', 6, 'complete'),
+	('COMP6120', 'Software Engineering', 6, 'complete');
+--> statement-breakpoint
+INSERT INTO `assessments` (`course_id`, `title`, `weight`, `weight_provenance`, `weight_source_url`, `due_at`, `due_week`, `due_timing_status`, `due_at_source_url`, `due_at_published_text`) VALUES
+	('COMP4020', 'Studio Crit', 20, 'published', 'https://programsandcourses.anu.edu.au/2026/course/COMP4020/Second%20Semester/9056', NULL, NULL, 'unstated', NULL, NULL),
+	('COMP4020', 'Assignment 1', 20, 'published', 'https://programsandcourses.anu.edu.au/2026/course/COMP4020/Second%20Semester/9056', '2026-08-17', 4, 'published', 'https://programsandcourses.anu.edu.au/2026/course/COMP4020/Second%20Semester/9056', NULL),
+	('COMP4020', 'Assignment 2', 20, 'published', 'https://programsandcourses.anu.edu.au/2026/course/COMP4020/Second%20Semester/9056', '2026-09-21', 7, 'published', 'https://programsandcourses.anu.edu.au/2026/course/COMP4020/Second%20Semester/9056', NULL),
+	('COMP4020', 'Final Project (Assignment 3)', 40, 'published', 'https://programsandcourses.anu.edu.au/2026/course/COMP4020/Second%20Semester/9056', '2026-11-09', NULL, 'published', 'https://programsandcourses.anu.edu.au/2026/course/COMP4020/Second%20Semester/9056', NULL),
+	('COMP6390', 'Pre-class and In-class tasks', 10, 'published', 'https://programsandcourses.anu.edu.au/2026/course/COMP6390/Second%20Semester/8693', NULL, NULL, 'unstated', NULL, NULL),
+	('COMP6390', 'Assignment 1: Prototyping', 20, 'published', 'https://programsandcourses.anu.edu.au/2026/course/COMP6390/Second%20Semester/8693', '2026-08-24', 5, 'published', 'https://programsandcourses.anu.edu.au/2026/course/COMP6390/Second%20Semester/8693', NULL),
+	('COMP6390', 'Assignment 2: Needs Finding', 30, 'published', 'https://programsandcourses.anu.edu.au/2026/course/COMP6390/Second%20Semester/8693', '2026-10-06', 9, 'published', 'https://programsandcourses.anu.edu.au/2026/course/COMP6390/Second%20Semester/8693', NULL),
+	('COMP6390', 'Final Project: Prototype Design and Research Project', 40, 'published', 'https://programsandcourses.anu.edu.au/2026/course/COMP6390/Second%20Semester/8693', '2026-11-05', NULL, 'published', 'https://programsandcourses.anu.edu.au/2026/course/COMP6390/Second%20Semester/8693', NULL),
+	('COMP6120', 'Assignment 1: Agile Basics', 5, 'published', 'https://programsandcourses.anu.edu.au/2026/course/COMP6120/Second%20Semester/8708', NULL, 2, 'published', 'https://programsandcourses.anu.edu.au/2026/course/COMP6120/Second%20Semester/8708', 'Week 2'),
+	('COMP6120', 'Assignment 2: Inspection (GROUP)', 15, 'published', 'https://programsandcourses.anu.edu.au/2026/course/COMP6120/Second%20Semester/8708', NULL, 5, 'published', 'https://programsandcourses.anu.edu.au/2026/course/COMP6120/Second%20Semester/8708', 'Week 5'),
+	('COMP6120', 'Assignment 3: Adding Features (GROUP)', 15, 'published', 'https://programsandcourses.anu.edu.au/2026/course/COMP6120/Second%20Semester/8708', NULL, 8, 'published', 'https://programsandcourses.anu.edu.au/2026/course/COMP6120/Second%20Semester/8708', 'Week 8'),
+	('COMP6120', 'Assignment 4: Presentation of PR (GROUP)', 5, 'published', 'https://programsandcourses.anu.edu.au/2026/course/COMP6120/Second%20Semester/8708', NULL, 11, 'published', 'https://programsandcourses.anu.edu.au/2026/course/COMP6120/Second%20Semester/8708', 'Week 11'),
+	('COMP6120', 'Assignment 5: Pull Request for Open Source (GROUP)', 15, 'published', 'https://programsandcourses.anu.edu.au/2026/course/COMP6120/Second%20Semester/8708', NULL, 12, 'published', 'https://programsandcourses.anu.edu.au/2026/course/COMP6120/Second%20Semester/8708', 'Week 12'),
+	('COMP6120', 'Assignment 6: Final Exam', 45, 'published', 'https://programsandcourses.anu.edu.au/2026/course/COMP6120/Second%20Semester/8708', NULL, NULL, 'published', 'https://programsandcourses.anu.edu.au/2026/course/COMP6120/Second%20Semester/8708', 'Week 13');
