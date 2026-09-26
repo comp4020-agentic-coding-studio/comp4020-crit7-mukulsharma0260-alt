@@ -22,15 +22,25 @@ export type Message = typeof messages.$inferSelect;
 // app. `code` is the primary key — a natural, stable identifier — rather than
 // a surrogate id, since assessments and plan_courses reference courses by
 // code, and that's also what the hand-typed seed SQL reads by.
+// assessment_scope distinguishes an ordinary semester offering ('complete',
+// whose assessment weights should sum to ~100) from a single semester's slice
+// of an annual 6+6 course ('partial_annual_slice', where a partial total is
+// expected and correct, not an error) — a partial slice never gets padded
+// with invented assessments to force it to 100.
 export const courses = sqliteTable("courses", {
   code: text().primaryKey(),
   title: text().notNull(),
   units: int().notNull(),
+  assessmentScope: text("assessment_scope", {
+    enum: ["complete", "partial_annual_slice"],
+  })
+    .notNull()
+    .default("complete"),
 });
 
 export type Course = typeof courses.$inferSelect;
 
-// Reference data, seeded alongside courses. weight and due_at each carry
+// Reference data, seeded alongside courses. weight and due-timing each carry
 // their OWN provenance/source_url pair, independently — the common real case
 // is a course page that states the weight exactly but the date only as "week
 // 9", so a single row-level label would force one of two dishonest choices:
@@ -40,15 +50,27 @@ export type Course = typeof courses.$inferSelect;
 // estimated" render as two independently honest badges. 'published' rows must
 // cite their own source_url (enforced by the CHECK below); 'estimated' rows
 // are my own placement and may still carry a source_url — the page an
-// estimate was informed by, not proof of the estimate itself. due_at is an
-// ISO date (no time-of-day: only the day matters for bucketing into a
-// teaching week). due_at_published_text is whatever ANU wrote about timing,
-// verbatim, wherever it wrote anything at all — "Week 9", "mid-semester",
-// "TBA" — null when the page says nothing. It turns an 'estimated' due_at
-// from a bare assertion into a derivation ("ANU says 'Week 9', placed Mon 5
-// Oct") and is what a later sensitivity check reads to find the plausible
-// window a placement was drawn from. No estimated_hours column: the metric
-// this app defends is assessment weight due in a week, not a workload guess.
+// estimate was informed by, not proof of the estimate itself.
+//
+// due-timing has three possible shapes, not two: a source can publish an
+// exact calendar date (due_at), publish only a teaching week (due_week, e.g.
+// COMP6120's class-schedule week labels with no structured due date field),
+// or publish nothing at all about timing — which must be representable
+// without inventing a date. due_timing_status names which of those three
+// applies: 'published' or 'estimated' means at least one of due_at/due_week/
+// due_at_published_text is populated; 'unstated' means the source said
+// nothing and all three are null. (Named for what it governs jointly, not
+// "due_at_provenance" — it can be 'published' while due_at itself is null.)
+// due_at is an ISO date (no time-of-day: only the day matters for bucketing
+// into a teaching week) or null. due_week is a teaching-week number or null;
+// it is deliberately NOT constrained here to the current semester's week
+// range (see src/data/academic-calendar.ts) — that range changes every
+// semester and doesn't belong baked into the schema, so it's validated at the
+// application/test layer instead. due_at_published_text is whatever ANU wrote
+// about timing, verbatim, wherever it wrote anything at all — "Week 9",
+// "mid-semester", "TBA" — null when the page says nothing. No
+// estimated_hours column: the metric this app defends is assessment weight
+// due in a week, not a workload guess.
 export const assessments = sqliteTable(
   "assessments",
   {
@@ -62,9 +84,10 @@ export const assessments = sqliteTable(
       enum: ["published", "estimated"],
     }).notNull(),
     weightSourceUrl: text("weight_source_url"),
-    dueAt: text("due_at").notNull(),
-    dueAtProvenance: text("due_at_provenance", {
-      enum: ["published", "estimated"],
+    dueAt: text("due_at"),
+    dueWeek: int("due_week"),
+    dueTimingStatus: text("due_timing_status", {
+      enum: ["published", "estimated", "unstated"],
     }).notNull(),
     dueAtSourceUrl: text("due_at_source_url"),
     dueAtPublishedText: text("due_at_published_text"),
@@ -75,8 +98,16 @@ export const assessments = sqliteTable(
       sql`${table.weightProvenance} != 'published' OR ${table.weightSourceUrl} IS NOT NULL`,
     ),
     check(
-      "due_at_published_requires_source_url",
-      sql`${table.dueAtProvenance} != 'published' OR ${table.dueAtSourceUrl} IS NOT NULL`,
+      "due_timing_published_requires_source_url",
+      sql`${table.dueTimingStatus} != 'published' OR ${table.dueAtSourceUrl} IS NOT NULL`,
+    ),
+    check(
+      "due_timing_unstated_is_fully_empty",
+      sql`${table.dueTimingStatus} != 'unstated' OR (${table.dueAt} IS NULL AND ${table.dueWeek} IS NULL AND ${table.dueAtPublishedText} IS NULL)`,
+    ),
+    check(
+      "due_timing_stated_has_something",
+      sql`${table.dueTimingStatus} = 'unstated' OR (${table.dueAt} IS NOT NULL OR ${table.dueWeek} IS NOT NULL OR ${table.dueAtPublishedText} IS NOT NULL)`,
     ),
   ],
 );
