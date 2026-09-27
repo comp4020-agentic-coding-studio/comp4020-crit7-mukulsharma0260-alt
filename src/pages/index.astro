@@ -1,6 +1,6 @@
 ---
 import { getPlan, listAssessments, listCourses } from "../lib/db";
-import { computeWeeklyPressure } from "../lib/pressure";
+import { computeAssessmentPressure } from "../lib/pressure";
 import "../styles.css";
 
 const courses = listCourses();
@@ -19,11 +19,11 @@ const ERROR_MESSAGES: Record<string, string> = {
 };
 const errorMessage = error ? (ERROR_MESSAGES[error] ?? "That plan couldn't be saved.") : null;
 
-const pressure = computeWeeklyPressure(assessments, plan.current, plan.candidate);
+const pressure = computeAssessmentPressure(assessments, plan.current, plan.candidate);
 // Bars scale against 100 (a whole course's assessment weight) by default, but
-// stretch further if a week's combined total genuinely exceeds it — real
+// stretch further if a period's combined total genuinely exceeds it — real
 // clash, never clipped away.
-const scale = Math.max(100, ...pressure.weeks.map((week) => week.withCandidateTotal));
+const scale = Math.max(100, ...pressure.periods.map((period) => period.withCandidateTotal));
 ---
 
 <!doctype html>
@@ -97,39 +97,40 @@ const scale = Math.max(100, ...pressure.weeks.map((week) => week.withCandidateTo
       </form>
 
       <section class="pressure">
+        <p class="plan-status">Showing your saved plan. Save changes to recalculate.</p>
         <h2>ASSESSMENT PRESSURE</h2>
-        <p class="hint">Assessment weight due across selected courses, by teaching week.</p>
+        <p class="hint">Assessment weight due across selected courses, by semester period.</p>
         <div class="legend">
           <span class="legend-item"><span class="swatch current" /> Current</span>
           <span class="legend-item"><span class="swatch with-candidate" /> Current + candidate</span>
         </div>
 
         {
-          pressure.weeks.length === 0 ? (
-            <p>No selected course has assessments mapped to a numbered teaching week yet.</p>
+          pressure.periods.length === 0 ? (
+            <p>No selected course has assessments mapped to a semester period yet.</p>
           ) : (
             <ol class="week-list">
-              {pressure.weeks.map((week) => {
-                const isWorst = pressure.worstWeek?.week === week.week;
-                const delta = week.withCandidateTotal - week.currentTotal;
+              {pressure.periods.map((period) => {
+                const isHighest = pressure.highestPressure?.key === period.key;
+                const delta = period.withCandidateTotal - period.currentTotal;
                 return (
-                  <li class:list={["week-row", { worst: isWorst }]}>
+                  <li class:list={["week-row", { worst: isHighest }]}>
                     <div class="week-label">
-                      {week.label}
-                      {isWorst && <span class="worst-badge">WORST WEEK</span>}
+                      {period.label}
+                      {isHighest && <span class="worst-badge">HIGHEST PRESSURE</span>}
                     </div>
                     <div class="bars">
                       <div class="bar-track">
-                        <div class="bar current" style={`width: ${(week.currentTotal / scale) * 100}%`} />
+                        <div class="bar current" style={`width: ${(period.currentTotal / scale) * 100}%`} />
                       </div>
                       <div class="bar-track">
-                        <div class="bar with-candidate" style={`width: ${(week.withCandidateTotal / scale) * 100}%`} />
+                        <div class="bar with-candidate" style={`width: ${(period.withCandidateTotal / scale) * 100}%`} />
                       </div>
                     </div>
                     <div class="week-totals">
-                      <span>Current: {week.currentTotal}%</span>
+                      <span>Current: {period.currentTotal}%</span>
                       <span>
-                        With candidate: {week.withCandidateTotal}%
+                        With candidate: {period.withCandidateTotal}%
                         {delta > 0 && ` (+${delta} percentage points)`}
                       </span>
                     </div>
@@ -143,9 +144,10 @@ const scale = Math.max(100, ...pressure.weeks.map((week) => week.withCandidateTo
         {
           pressure.unmapped.length > 0 && (
             <div class="unmapped">
-              <h3>Outside numbered teaching weeks</h3>
+              <h3>Outside the modelled calendar</h3>
               <p class="hint">
-                Timing that can't be mapped to a numbered teaching week — never discarded, shown here instead.
+                Timing that can't be honestly placed on the semester calendar — unstated, or outside the modelled
+                range entirely — never discarded, shown here instead.
               </p>
               <ul>
                 {pressure.unmapped.map((item) => (
@@ -159,5 +161,30 @@ const scale = Math.max(100, ...pressure.weeks.map((week) => week.withCandidateTo
         }
       </section>
     </main>
+    <script>
+      // Minimal client-side consistency check, not a reactive frontend: the
+      // pressure chart above still only reflects the last SAVED plan (see the
+      // "Showing your saved plan" text) and does not recompute here. This
+      // only stops a course from being simultaneously checked under MY
+      // SEMESTER and left selectable as the candidate before you save.
+      const currentInputs = document.querySelectorAll<HTMLInputElement>('input[name="current"]');
+      const candidateSelect = document.getElementById("candidate") as HTMLSelectElement | null;
+
+      function syncCandidateOptions() {
+        if (!candidateSelect) return;
+        const checked = new Set([...currentInputs].filter((input) => input.checked).map((input) => input.value));
+        for (const option of candidateSelect.options) {
+          option.disabled = checked.has(option.value);
+        }
+        if (candidateSelect.value && checked.has(candidateSelect.value)) {
+          candidateSelect.value = "";
+        }
+      }
+
+      for (const input of currentInputs) {
+        input.addEventListener("change", syncCandidateOptions);
+      }
+      syncCandidateOptions();
+    </script>
   </body>
 </html>
