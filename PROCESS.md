@@ -12,8 +12,10 @@ CLASH is a thin slice of a real ANU system: it lets a student
 - select one candidate course they're considering adding,
 - save that semester plan to SQLite,
 - reload the page and get the same plan back, and
-- compare assessment weight by numbered teaching week, current-only versus
-  current-plus-candidate, and see the single worst week the candidate creates.
+- compare assessment weight by modelled semester period — numbered teaching
+  weeks and explicitly modelled non-teaching periods like the exam period are
+  both real buckets — current-only versus current-plus-candidate, and see the
+  single highest-pressure period the candidate creates.
 
 The metric the app reports is **assessment weight due in a week**, sourced
 from each course's published ANU assessment breakdown — not an estimate of
@@ -98,18 +100,26 @@ compaction rather than live only in a conversation.
 - **No `estimated_hours` column.** The metric this app defends is assessment
   weight due in a week, not a workload guess. A workload estimate would be an
   invented, unsourced number in support of a claim the app doesn't make.
-- **The bucketing rule.** The teaching-week calendar is one ordered partition
-  with no gaps. An assessment with no numbered teaching week (`due_week` null)
-  is never folded into an adjacent week — it's kept in an explicit unmapped
-  section, since silently discarding or misplacing it is exactly the kind of
-  error this app exists to avoid.
+- **The bucketing rule.** The semester is one ordered, gapless partition
+  (`ACADEMIC_CALENDAR`): numbered teaching weeks, the mid-semester break, the
+  exam period, and the short unlabelled gap before it. An assessment is
+  bucketed by whichever entry its timing actually falls in — a break or
+  exam-period date is real information and stays under that entry's own
+  label, never folded into an adjacent teaching week. Only genuinely
+  unresolved timing, or a date outside the whole modelled range, is kept in an
+  explicit unmapped section, since silently discarding or misplacing it is
+  exactly the kind of error this app exists to avoid. (The first shipped
+  implementation only matched a numbered `due_week` and dumped every other
+  date into unmapped regardless of whether the calendar actually covered it —
+  see [Post-ship review and correction](#8-post-ship-review-and-correction).)
 - **One candidate at a time.** `plan_courses` holds at most one row with
   `role = 'candidate'`; adding a second replaces the first. The comparison is
   "my semester, plus this one course" — two candidates make the delta
   ambiguous and the UI worse.
-- **Worst-week metric: max assessment weight due in any single bucket, ties go
-  to the earlier bucket.** Nothing cleverer — no weighting by difficulty, no
-  smoothing.
+- **Highest-pressure metric: max assessment weight due in any single bucket,
+  ties go to the earlier bucket.** Nothing cleverer — no weighting by
+  difficulty, no smoothing. A bucket can be a numbered teaching week or an
+  explicitly modelled non-teaching period, such as the exam period.
 
 ## 6. The deploy health check was checking the wrong thing
 
@@ -187,41 +197,105 @@ implementation itself:
 - `/api/plan` validates on the server before writing: an unknown course code
   or a candidate that duplicates a current course is rejected with the stored
   plan left untouched, rather than silently accepted or crashing.
-- The weekly pressure calculation keeps assessments with a numbered teaching
-  week separate from ones whose timing can't honestly be mapped to one (no
-  `due_week`, e.g. COMP6120's "Week 13" final) — the latter are surfaced in an
-  explicit unmapped section, never dropped and never guessed into a bucket.
+- The assessment-pressure calculation buckets each assessment against
+  `ACADEMIC_CALENDAR` by its numbered teaching week when it has one, or by
+  which calendar entry its exact due date falls inside otherwise — timing
+  that's genuinely unstated, or outside the entire modelled calendar, is
+  surfaced in an explicit unmapped section, never dropped and never guessed
+  into a bucket. (This due-date-to-calendar-entry mapping was corrected
+  post-ship; see [Post-ship review and correction](#8-post-ship-review-and-correction).)
 
 **Demo scenario**, run against the seeded course data
-(current: COMP4020, COMP6120; candidate: COMP6390): the worst numbered
-teaching week is Week 5 — current-only weight due that week is 15%, current
-plus the candidate is 35%, an increase of +20 percentage points. This is
-covered directly by `spec/pressure.test.ts` and matches the actual seeded
-assessment weights (COMP6120's Assignment 2 at 15% due week 5, COMP6390's
-Assignment 1 at 20% due week 5).
+(current: COMP4020, COMP6120; candidate: COMP6390): the overall
+highest-pressure period is the **Semester 2 examination period** —
+current-only weight due in that period is 40%, current plus the candidate is
+80%, an increase of +40 percentage points. That's two 40%-weighted final
+projects with exact due dates inside the modelled exam-period interval —
+COMP4020's Final Project (`2026-11-09`) and COMP6390's Final Project
+(`2026-11-05`) — each mapped there by due date rather than a numbered teaching
+week. Week 5 is still a real, populated bucket in its own right (COMP6120's
+Assignment 2 at 15% and COMP6390's Assignment 1 at 20%, for a with-candidate
+total of 35%) — it's simply no longer the single highest-pressure period once
+the exam period is bucketed correctly. Both figures are covered directly by
+`spec/pressure.test.ts`.
 
-## 8. Verification
+## 8. Post-ship review and correction
 
-- 137/137 tests passing (`pnpm check`), 7 test files, at feature completion
-  and again just before this write-up.
+After the first successful ship (repo public, CI green, live on Fly), the
+deployed app was reviewed again. Three issues were reported; each was
+reproduced independently before anything was changed — a review claim, like a
+green check, isn't proof by itself.
+
+- **Reported: the "About" nav link 404s at `/about`.** False positive. The
+  actual link is `<a href="/readme/">About</a>`, and `/readme/` returns 200
+  and always did — `/about` was never a real route, so there was nothing to
+  fix there. What the review did surface honestly is that nothing was
+  mechanically checking nav links at all, so `f092d32` adds
+  `spec/nav.test.ts`, which reads every internal `nav a[href]` off the
+  rendered homepage and asserts each one resolves with a 200.
+- **Reported: assessment weight due in the exam period was being bucketed as
+  "outside numbered teaching weeks."** Confirmed real. Two 40%-weighted final
+  projects — COMP4020's Final Project (`2026-11-09`) and COMP6390's Final
+  Project (`2026-11-05`) — have no numbered `due_week`, and the deployed
+  pressure calculation only ever matched `due_week`, so both fell into the
+  unmapped list even though both sit inside the modelled Semester 2
+  examination-period interval. `f092d32` rewrites the aggregation so an exact
+  `due_at` is matched against whichever `ACADEMIC_CALENDAR` entry contains it
+  — teaching week, break, exam period, or the short unlabelled gap — under
+  that entry's own label. Only a date outside the entire modelled calendar, or
+  genuinely unstated timing (COMP6120's published "Week 13", which this app
+  was never going to invent a date for), stays unmapped. No seeded date was
+  changed.
+- **Reported: the candidate/current selection in the form disagreed with the
+  chart.** Diagnosed before changing anything: SQLite persistence and the
+  rendered form were both already correct — the `checked`/`selected`
+  attributes matched what `getPlan()` returned from the database. The chart
+  reads from that same saved plan, so the actual disagreement a reviewer would
+  see is that it can only ever show the last **saved** state, not in-progress
+  checkbox edits, until a save-and-reload. `f092d32` adds the line "Showing
+  your saved plan. Save changes to recalculate." directly above the chart,
+  plus a small client-side script that stops a course from staying selectable
+  as the candidate once it's checked under MY SEMESTER. Not a reactive
+  frontend — the chart itself still only recalculates on save — and SQLite
+  with server-side validation remains the sole authority.
+
+[`f092d32`](https://github.com/comp4020-agentic-coding-studio/comp4020-crit7-mukulsharma0260-alt/commit/f092d322519b271c6da8d812654d097c7136b00a)
+(`fix: triage review findings and correct pressure bucketing`) is all three
+fixes, together with the updated and expanded test suite backing them.
+
+## 9. Verification
+
+- 143/143 tests passing (`pnpm check`), 8 test files — up from 137/7 at
+  feature completion, with the post-ship fix adding `spec/nav.test.ts` and
+  five new calendar-bucketing cases to `spec/pressure.test.ts`.
 - `pnpm check` (typecheck + build + full test suite) clean.
-- `git diff --check` clean at each commit.
+- `git diff --check` clean at each commit, including `f092d32`.
 - Local: saved a plan through the running dev server, reloaded, confirmed the
-  same current/candidate selections came back from SQLite.
+  same current/candidate selections came back from SQLite — both before and
+  after the post-ship fix.
 - Deployed to Fly (`flyctl deploy --remote-only --ha=false -a
   comp4020-crit7-mukulsharma0260-alt`) and confirmed the live URL returns
   HTTP 200.
 - Live: repeated the same save-then-reload check against the deployed app —
   the same current/candidate selections persisted across the request
   boundary, not just locally.
-- Confirmed the live homepage now serves CLASH (`<h1>CLASH</h1>`) and no
-  longer serves the old Guestbook starter it replaced.
+- Confirmed the live homepage serves CLASH (`<h1>CLASH</h1>`) and no longer
+  serves the old Guestbook starter it replaced.
+- Public CI run for `f092d32` (GitHub Actions run `36281424191`): both the
+  `check` and `deploy` jobs passed, including CI's own live-site,
+  live-update-stream, HTTPS-awareness, CSRF and internal-link checks.
+- Live, post-fix verification against the deployed app: `/` returns 200 and
+  serves CLASH; `/readme/` returns 200; every internal nav link resolves;
+  both November finals (`2026-11-05`, `2026-11-09`) render under "Semester 2
+  examination period" and neither appears in the unmapped list; COMP6120's
+  published "Week 13" remains unresolved; a fresh save-then-reload of the demo
+  plan persists correctly.
 
 Live URL: https://comp4020-crit7-mukulsharma0260-alt.fly.dev
 
-The repository is not yet public and `/comp4020:ship` has not been run.
+The repository is public and `/comp4020:ship` has run.
 
-## 9. My role with the agent
+## 10. My role with the agent
 
 I used the agent to implement quickly, but acceptance depended on evidence,
 tests, source grounding, and correction, not on the agent's own account of
@@ -247,3 +321,7 @@ what it had done:
 - Required assessments with unmappable timing to remain visible in an
   explicit section rather than being silently discarded or forced into the
   wrong week.
+- Did not accept external review findings automatically after shipping: I
+  reproduced each one, rejected the false `/about` claim, confirmed the
+  calendar bug against the source model, diagnosed the form/chart behaviour
+  before changing it, and only then implemented the smallest justified fixes.
